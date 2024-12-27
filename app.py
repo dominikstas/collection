@@ -1,117 +1,146 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import mysql.connector
+from mysql.connector import Error
 from datetime import datetime
 from PIL import Image, ImageTk
 import urllib.request
 from io import BytesIO
 import re
+from db_config import db_settings
 
-class MusicCollectionManager:
+class Music:
     def __init__(self, root):
         self.root = root
-        self.root.title("Music Collection Manager")
+        self.root.title("Music Collection")
         self.root.geometry("1200x800")
         
-        # Database connection
-        self.db_config = {
-            'host': 'localhost',
-            'user': '',
-            'password': '',
-            'database': 'music_collection'
+        # Configure style
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        
+        # Define colors
+        self.colors = {
+            'primary': '#2196F3',
+            'secondary': '#607D8B',
+            'background': '#F5F5F5',
+            'surface': '#FFFFFF',
+            'error': '#F44336',
+            'text': '#212121',
+            'text_secondary': '#757575'
         }
         
-        # Initialize login frame
-        self.show_login_frame()
+        # Configure styles
+        self.configure_styles()
         
-    def create_database(self):
+        # Initialize database
         try:
-            conn = mysql.connector.connect(
-                host=self.db_config['host'],
-                user=self.db_config['user'],
-                password=self.db_config['password']
-            )
-            cursor = conn.cursor()
-            
-            # Create database if not exists
-            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {self.db_config['database']}")
-            
-            # Use the database
-            cursor.execute(f"USE {self.db_config['database']}")
-            
-            # Create users table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(50) UNIQUE NOT NULL,
-                    password VARCHAR(255) NOT NULL
-                )
-            """)
-            
-            # Create records table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS records (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT,
-                    title VARCHAR(255) NOT NULL,
-                    artist VARCHAR(255) NOT NULL,
-                    format ENUM('CD', 'Vinyl') NOT NULL,
-                    purchase_date DATE,
-                    cover_url TEXT,
-                    notes TEXT,
-                    FOREIGN KEY (user_id) REFERENCES users(id)
-                )
-            """)
-            
-            conn.commit()
-            conn.close()
-            
-        except mysql.connector.Error as err:
-            messagebox.showerror("Database Error", f"Error: {err}")
-    
+            self.db_config = db_settings
+            self.db = mysql.connector.connect(**self.db_config)
+            if self.db.is_connected():
+                print("Database connected")
+        except Error as e:
+            print(f"Database error: {e}")
+            self.db = None
+
+        # Initialize variables
+        self.current_user_id = None
+        self.title_entry = None
+        self.artist_entry = None
+        self.format_var = tk.StringVar()
+        self.date_entry = None
+        self.cover_entry = None
+        self.notes_text = None
+        self.tree = None
+        self.cover_label = None
+
+        self.show_login_frame()
+
+    def configure_styles(self):
+        style = self.style
+        colors = self.colors
+        
+        style.configure('Primary.TButton',
+            background=colors['primary'],
+            foreground='white',
+            padding=(20, 10),
+            font=('Helvetica', 10)
+        )
+        style.configure('Secondary.TButton',
+            background=colors['secondary'],
+            padding=(20, 10),
+            font=('Helvetica', 10)
+        )
+        style.configure('Card.TFrame',
+            background=colors['surface'],
+            relief='flat'
+        )
+        style.configure('Title.TLabel',
+            font=('Helvetica', 24, 'bold'),
+            foreground=colors['text'],
+            background=colors['surface']
+        )
+        style.configure('Header.TLabel',
+            font=('Helvetica', 16),
+            foreground=colors['text'],
+            background=colors['surface']
+        )
+        style.configure('Modern.Treeview',
+            background=colors['surface'],
+            fieldbackground=colors['surface'],
+            font=('Helvetica', 10)
+        )
+        style.configure('Modern.Treeview.Heading',
+            font=('Helvetica', 12, 'bold')
+        )
+
     def show_login_frame(self):
-        # Clear existing widgets
         for widget in self.root.winfo_children():
             widget.destroy()
-            
-        # Create login frame
-        login_frame = ttk.Frame(self.root, padding="20")
-        login_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        main_frame = ttk.Frame(self.root, style='Card.TFrame')
+        main_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        ttk.Label(main_frame, text="Music Collection", style='Title.TLabel').pack(pady=20)
         
-        # Login widgets
-        ttk.Label(login_frame, text="Username:").grid(row=0, column=0, pady=5)
-        self.username_entry = ttk.Entry(login_frame)
-        self.username_entry.grid(row=0, column=1, pady=5)
+        form_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        form_frame.pack(padx=40, pady=20)
         
-        ttk.Label(login_frame, text="Password:").grid(row=1, column=0, pady=5)
-        self.password_entry = ttk.Entry(login_frame, show="*")
-        self.password_entry.grid(row=1, column=1, pady=5)
+        ttk.Label(form_frame, text="Username", style='Header.TLabel').pack(anchor='w', pady=(0, 5))
+        self.username_entry = ttk.Entry(form_frame, width=30, font=('Helvetica', 12))
+        self.username_entry.pack(pady=(0, 15), ipady=5)
         
-        ttk.Button(login_frame, text="Login", command=self.login).grid(row=2, column=0, pady=10)
-        ttk.Button(login_frame, text="Register", command=self.register).grid(row=2, column=1, pady=10)
+        ttk.Label(form_frame, text="Password", style='Header.TLabel').pack(anchor='w', pady=(0, 5))
+        self.password_entry = ttk.Entry(form_frame, show="•", width=30, font=('Helvetica', 12))
+        self.password_entry.pack(pady=(0, 20), ipady=5)
         
+        button_frame = ttk.Frame(form_frame, style='Card.TFrame')
+        button_frame.pack(pady=10)
+        
+        ttk.Button(button_frame, text="Login", style='Primary.TButton', command=self.login).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Register", style='Secondary.TButton', command=self.register).pack(side='left', padx=5)
+
     def login(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
         
         try:
-            conn = mysql.connector.connect(**self.db_config)
-            cursor = conn.cursor()
+            db = mysql.connector.connect(**self.db_config)
+            cursor = db.cursor()
             
             cursor.execute("SELECT id, password FROM users WHERE username = %s", (username,))
             result = cursor.fetchone()
             
-            if result and result[1] == password:  # In production, use proper password hashing
+            if result and result[1] == password:
                 self.current_user_id = result[0]
                 self.show_main_interface()
             else:
                 messagebox.showerror("Error", "Invalid username or password")
                 
-            conn.close()
-            
-        except mysql.connector.Error as err:
+            db.close()
+        except Error as err:
             messagebox.showerror("Database Error", f"Error: {err}")
-    
+
     def register(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
@@ -121,106 +150,121 @@ class MusicCollectionManager:
             return
             
         try:
-            conn = mysql.connector.connect(**self.db_config)
-            cursor = conn.cursor()
+            db = mysql.connector.connect(**self.db_config)
+            cursor = db.cursor()
             
             cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (username, password))
-            conn.commit()
-            conn.close()
+            db.commit()
+            db.close()
             
             messagebox.showinfo("Success", "Registration successful! Please login.")
-            
-        except mysql.connector.Error as err:
+        except Error as err:
             messagebox.showerror("Database Error", f"Error: {err}")
-    
+
     def show_main_interface(self):
-        # Clear existing widgets
+        # Clear window
         for widget in self.root.winfo_children():
             widget.destroy()
-            
-        # Create main interface
-        # Left panel for record list
-        left_panel = ttk.Frame(self.root, padding="10")
-        left_panel.pack(side="left", fill="both", expand=True)
+
+        # Main container
+        main_container = ttk.Frame(self.root)
+        main_container.pack(fill='both', expand=True, padx=20, pady=20)
+
+        # Left panel
+        self.setup_left_panel(main_container)
         
-        # Search frame
-        search_frame = ttk.Frame(left_panel)
-        search_frame.pack(fill="x", pady=5)
+        # Right panel
+        self.setup_right_panel(main_container)
         
-        ttk.Label(search_frame, text="Search:").pack(side="left")
-        self.search_entry = ttk.Entry(search_frame)
-        self.search_entry.pack(side="left", fill="x", expand=True, padx=5)
+        # Load records
+        self.load_records()
+
+    def setup_left_panel(self, container):
+        left_panel = ttk.Frame(container, style='Card.TFrame')
+        left_panel.pack(side='left', fill='both', expand=True, padx=(0, 10))
+
+        # Search bar
+        search_frame = ttk.Frame(left_panel, style='Card.TFrame')
+        search_frame.pack(fill='x', pady=(0, 10))
+
+        self.search_entry = ttk.Entry(search_frame, font=('Helvetica', 12))
+        self.search_entry.pack(side='left', fill='x', expand=True, padx=(0, 10), ipady=5)
         self.search_entry.bind('<KeyRelease>', self.search_records)
-        
-        # Sort frame
-        sort_frame = ttk.Frame(left_panel)
-        sort_frame.pack(fill="x", pady=5)
-        
-        ttk.Label(sort_frame, text="Sort by:").pack(side="left")
+
         self.sort_var = tk.StringVar()
-        sort_combo = ttk.Combobox(sort_frame, textvariable=self.sort_var, 
-                                 values=["Title", "Artist", "Purchase Date"])
-        sort_combo.pack(side="left", padx=5)
+        sort_combo = ttk.Combobox(search_frame, textvariable=self.sort_var,
+                                 values=["Title", "Artist", "Date"],
+                                 width=15, font=('Helvetica', 10))
+        sort_combo.pack(side='right')
+        sort_combo.set("Sort by")
         sort_combo.bind('<<ComboboxSelected>>', self.sort_records)
+
+        # Records list
+        self.tree = ttk.Treeview(left_panel, style='Modern.Treeview',
+                                columns=("Title", "Artist", "Format", "Date"),
+                                show="headings")
         
-        # Records treeview
-        columns = ("Title", "Artist", "Format", "Purchase Date")
-        self.tree = ttk.Treeview(left_panel, columns=columns, show="headings")
-        
-        for col in columns:
+        for col in ("Title", "Artist", "Format", "Date"):
             self.tree.heading(col, text=col)
             self.tree.column(col, width=100)
-            
-        self.tree.pack(fill="both", expand=True)
+
+        self.tree.pack(fill='both', expand=True)
         self.tree.bind('<<TreeviewSelect>>', self.show_record_details)
-        
-        # Right panel for record details
-        right_panel = ttk.Frame(self.root, padding="10")
-        right_panel.pack(side="right", fill="both")
-        
-        # Record details form
-        ttk.Label(right_panel, text="Title:").grid(row=0, column=0, pady=5)
-        self.title_entry = ttk.Entry(right_panel)
-        self.title_entry.grid(row=0, column=1, pady=5)
-        
-        ttk.Label(right_panel, text="Artist:").grid(row=1, column=0, pady=5)
-        self.artist_entry = ttk.Entry(right_panel)
-        self.artist_entry.grid(row=1, column=1, pady=5)
-        
-        ttk.Label(right_panel, text="Format:").grid(row=2, column=0, pady=5)
-        self.format_var = tk.StringVar()
-        format_combo = ttk.Combobox(right_panel, textvariable=self.format_var, 
-                                   values=["CD", "Vinyl"])
-        format_combo.grid(row=2, column=1, pady=5)
-        
-        ttk.Label(right_panel, text="Purchase Date:").grid(row=3, column=0, pady=5)
-        self.date_entry = ttk.Entry(right_panel)
-        self.date_entry.grid(row=3, column=1, pady=5)
-        
-        ttk.Label(right_panel, text="Cover URL:").grid(row=4, column=0, pady=5)
-        self.cover_entry = ttk.Entry(right_panel)
-        self.cover_entry.grid(row=4, column=1, pady=5)
-        
-        ttk.Label(right_panel, text="Notes:").grid(row=5, column=0, pady=5)
-        self.notes_text = tk.Text(right_panel, height=4, width=30)
-        self.notes_text.grid(row=5, column=1, pady=5)
-        
-        # Cover image label
-        self.cover_label = ttk.Label(right_panel)
-        self.cover_label.grid(row=6, column=0, columnspan=2, pady=10)
-        
+
+        scrollbar = ttk.Scrollbar(left_panel, orient='vertical', command=self.tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+    def setup_right_panel(self, container):
+        right_panel = ttk.Frame(container, style='Card.TFrame')
+        right_panel.pack(side='right', fill='both', padx=(10, 0))
+
+        ttk.Label(right_panel, text="Record Details", style='Title.TLabel').pack(pady=20)
+
+        details_frame = ttk.Frame(right_panel, style='Card.TFrame')
+        details_frame.pack(fill='x', padx=20)
+
+        # Form fields
+        ttk.Label(details_frame, text="Title", style='Header.TLabel').pack(anchor='w', pady=(10, 5))
+        self.title_entry = ttk.Entry(details_frame, font=('Helvetica', 12))
+        self.title_entry.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(details_frame, text="Artist", style='Header.TLabel').pack(anchor='w', pady=(10, 5))
+        self.artist_entry = ttk.Entry(details_frame, font=('Helvetica', 12))
+        self.artist_entry.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(details_frame, text="Format", style='Header.TLabel').pack(anchor='w', pady=(10, 5))
+        format_combo = ttk.Combobox(details_frame, textvariable=self.format_var,
+                                   values=["CD", "Vinyl"], font=('Helvetica', 12))
+        format_combo.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(details_frame, text="Purchase Date", style='Header.TLabel').pack(anchor='w', pady=(10, 5))
+        self.date_entry = ttk.Entry(details_frame, font=('Helvetica', 12))
+        self.date_entry.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(details_frame, text="Cover URL", style='Header.TLabel').pack(anchor='w', pady=(10, 5))
+        self.cover_entry = ttk.Entry(details_frame, font=('Helvetica', 12))
+        self.cover_entry.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(details_frame, text="Notes", style='Header.TLabel').pack(anchor='w', pady=(10, 5))
+        self.notes_text = tk.Text(details_frame, height=4, font=('Helvetica', 12))
+        self.notes_text.pack(fill='x', pady=(0, 20))
+
+        # Cover image
+        self.cover_label = ttk.Label(details_frame)
+        self.cover_label.pack(pady=10)
+
         # Buttons
-        button_frame = ttk.Frame(right_panel)
-        button_frame.grid(row=7, column=0, columnspan=2, pady=10)
-        
-        ttk.Button(button_frame, text="Add New", command=self.add_record).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Update", command=self.update_record).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Delete", command=self.delete_record).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Clear", command=self.clear_form).pack(side="left", padx=5)
-        
-        # Load initial records
-        self.load_records()
-    
+        button_frame = ttk.Frame(details_frame, style='Card.TFrame')
+        button_frame.pack(fill='x', pady=20)
+
+        ttk.Button(button_frame, text="Add", style='Primary.TButton',
+                  command=self.add_record).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Update", style='Secondary.TButton',
+                  command=self.update_record).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Delete", style='Secondary.TButton',
+                  command=self.delete_record).pack(side='left', padx=5)
+
     def load_records(self):
         try:
             conn = mysql.connector.connect(**self.db_config)
@@ -508,6 +552,6 @@ class MusicCollectionManager:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = MusicCollectionManager(root)
-    app.create_database()
+    app = Music(root)
+    #app.create_database()
     root.mainloop()
